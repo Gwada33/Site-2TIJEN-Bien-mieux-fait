@@ -22,6 +22,11 @@ RUN npm ci
 # --- Étape 2 : build (TS + admin) ------------------------------------------
 FROM deps AS build
 COPY apps/backend apps/backend
+# Coolify injecte les variables d'environnement comme ARG dans le stage de
+# build (dont NODE_ENV=production). Or la CLI Medusa n'enregistre ts-node
+# (nécessaire pour charger medusa-config.ts) que si NODE_ENV !== production.
+# On force donc "development" pendant le build ; le runtime reste en prod.
+ENV NODE_ENV=development
 RUN npm run build --workspace=@dtc/backend
 
 # --- Étape 3 : runtime ------------------------------------------------------
