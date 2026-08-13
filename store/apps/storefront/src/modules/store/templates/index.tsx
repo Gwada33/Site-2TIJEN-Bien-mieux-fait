@@ -4,7 +4,6 @@ import { OptionValueIds } from "@lib/util/product-option-filters"
 import SkeletonProductGrid from "@modules/skeletons/templates/skeleton-product-grid"
 import { SortOptions } from "@modules/store/components/refinement-list/sort-products"
 import LocalizedClientLink from "@modules/common/components/localized-client-link"
-import { HttpTypes } from "@medusajs/types"
 
 import {
   DropPresentation,
@@ -33,14 +32,12 @@ const StoreTemplate = ({
   page,
   countryCode,
   optionValueIds,
-  productOptions,
 }: {
   drop: DropPresentation | null
   sortBy?: SortOptions
   page?: string
   countryCode: string
   optionValueIds?: OptionValueIds
-  productOptions?: HttpTypes.StoreProductOption[]
 }) => {
   const pageNumber = page ? parseInt(page) : 1
   const sort = sortBy || "created_at"
@@ -147,7 +144,7 @@ const StoreTemplate = ({
         data-testid="category-container"
       >
         <div className="content-container">
-          <FilterBar sortBy={sort} options={productOptions ?? []} />
+          <FilterBar sortBy={sort} />
 
           <Suspense fallback={<SkeletonProductGrid />}>
             <PaginatedProducts

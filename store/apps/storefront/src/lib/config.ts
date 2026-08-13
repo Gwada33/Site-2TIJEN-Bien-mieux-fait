@@ -1,12 +1,12 @@
 import { getLocaleHeader } from "@lib/util/get-locale-header"
 import Medusa, { FetchArgs, FetchInput } from "@medusajs/js-sdk"
 
-// URL du backend : d'abord la variable serveur (interne, ex. http://backend:9000),
-// puis la variable publique inlinée au build (fallback navigateur), puis localhost.
-let MEDUSA_BACKEND_URL =
-  process.env.MEDUSA_BACKEND_URL ||
-  process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL ||
-  "http://localhost:9000"
+// Defaults to standard port for Medusa server
+let MEDUSA_BACKEND_URL = "http://localhost:9000"
+
+if (process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL) {
+  MEDUSA_BACKEND_URL = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL
+}
 
 export const sdk = new Medusa({
   baseUrl: MEDUSA_BACKEND_URL,

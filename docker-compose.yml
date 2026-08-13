@@ -39,10 +39,6 @@ services:
       DATABASE_URL: postgres://medusa:${POSTGRES_PASSWORD}@postgres:5432/medusa-store
       REDIS_URL: redis://redis:6379
       PORT: "9000"
-    ports:
-      # Loopback uniquement : accès admin via ssh -L 9000:localhost:9000
-      # (jamais exposé sur Internet — le tunnel ne route que vers le storefront)
-      - "127.0.0.1:9000:9000"
     volumes:
       # Persistance des fichiers uploadés si stockage local (sinon → R2)
       - backend-static:/app/apps/backend/static:Z
@@ -74,8 +70,6 @@ services:
     environment:
       # Requis au runtime (check-env-variables de next.config)
       NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}
-      # URL interne du backend (serveur) — le backend n'est jamais exposé
-      MEDUSA_BACKEND_URL: http://backend:9000
       PORT: "8000"
     depends_on:
       - backend

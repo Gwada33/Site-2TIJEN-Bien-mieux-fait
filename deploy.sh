@@ -60,9 +60,9 @@ TOKEN="$(grep '^CLOUDFLARE_TUNNEL_TOKEN=' .env | cut -d= -f2- || true)"
 if [ -z "$TOKEN" ] || [ "$TOKEN" = "eyJhIjoi…" ]; then
   echo "⚠️  CLOUDFLARE_TUNNEL_TOKEN manquant dans .env."
   echo "   Crée le tunnel : Cloudflare Zero Trust → Networks → Tunnels → Create."
-  echo "   Puis configure le Public Hostname :"
-  echo "     www → http://storefront:8000"
-  echo "   (le backend reste privé — le build storefront n'en dépend plus)"
+  echo "   Puis configure les Public Hostnames :"
+  echo "     www → http://storefront:8000      api → http://backend:9000"
+  echo "   (sans tunnel, le build storefront échouera : il appelle l'API publique)"
   echo ""
 fi
 
@@ -91,7 +91,7 @@ if [ "$backend_ok" -ne 1 ]; then
 fi
 echo "✅ Backend opérationnel."
 
-# --- 5. Storefront (build résilient : plus besoin du backend en ligne) -------
+# --- 5. Storefront (build → l'API doit répondre via le tunnel) -----------------
 echo "🚀 Build + démarrage du storefront…"
 "${COMPOSE[@]}" up -d --build storefront
 
@@ -101,6 +101,7 @@ echo "✅ Déploiement terminé."
 "${COMPOSE[@]}" ps
 echo ""
 echo "   Site   : https://2tijen.com  (www + apex, via le tunnel)"
-echo "   Admin  : ssh -L 9000:localhost:9000 user@serveur puis http://localhost:9000/app"
+echo "   Admin  : https://api.2tijen.com/app"
+echo "   API    : https://api.2tijen.com/health"
 echo ""
 echo "   Logs : ${COMPOSE[*]} logs -f backend   (ou storefront / cloudflared)"

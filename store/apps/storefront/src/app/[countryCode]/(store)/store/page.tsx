@@ -4,7 +4,6 @@ import { parseOptionValueIds } from "@lib/util/product-option-filters"
 import { SortOptions } from "@modules/store/components/refinement-list/sort-products"
 import StoreTemplate from "@modules/store/templates"
 import { getCurrentDrop } from "@lib/data/drop-presentation"
-import { listProductOptions } from "@lib/data/products"
 
 export const metadata: Metadata = {
   title: "Le drop — 2TIJEN",
@@ -31,10 +30,7 @@ export default async function StorePage(props: Params) {
   const { sortBy, page } = searchParams
   const optionValueIds = parseOptionValueIds(searchParams)
 
-  const [{ drop }, productOptions] = await Promise.all([
-    getCurrentDrop(params.countryCode),
-    listProductOptions(),
-  ])
+  const { drop } = await getCurrentDrop(params.countryCode)
 
   return (
     <StoreTemplate
@@ -43,7 +39,6 @@ export default async function StorePage(props: Params) {
       page={page}
       countryCode={params.countryCode}
       optionValueIds={optionValueIds}
-      productOptions={productOptions}
     />
   )
 }

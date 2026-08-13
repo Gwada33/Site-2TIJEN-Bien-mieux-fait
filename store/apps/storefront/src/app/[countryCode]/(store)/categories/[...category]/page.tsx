@@ -20,37 +20,30 @@ type Props = {
 }
 
 export async function generateStaticParams() {
-  try {
-    const product_categories = await listCategories()
+  const product_categories = await listCategories()
 
-    if (!product_categories) {
-      return []
-    }
-
-    const countryCodes = await listRegions().then((regions: StoreRegion[]) =>
-      regions?.map((r) => r.countries?.map((c) => c.iso_2)).flat()
-    )
-
-    const categoryHandles = product_categories.map(
-      (category: HttpTypes.StoreProductCategory) => category.handle
-    )
-
-    const staticParams = countryCodes
-      ?.map((countryCode: string | undefined) =>
-        categoryHandles.map((handle: string) => ({
-          countryCode,
-          category: [handle],
-        }))
-      )
-      .flat()
-
-    return staticParams
-  } catch (error) {
-    // Build résilient : si le backend est indisponible au build, la page
-    // devient dynamique (rendue à la demande) au lieu de planter le build.
-    console.error("generateStaticParams skipped (backend indisponible)", error)
+  if (!product_categories) {
     return []
   }
+
+  const countryCodes = await listRegions().then((regions: StoreRegion[]) =>
+    regions?.map((r) => r.countries?.map((c) => c.iso_2)).flat()
+  )
+
+  const categoryHandles = product_categories.map(
+    (category: HttpTypes.StoreProductCategory) => category.handle
+  )
+
+  const staticParams = countryCodes
+    ?.map((countryCode: string | undefined) =>
+      categoryHandles.map((handle: string) => ({
+        countryCode,
+        category: [handle],
+      }))
+    )
+    .flat()
+
+  return staticParams
 }
 
 export async function generateMetadata(props: Props): Promise<Metadata> {

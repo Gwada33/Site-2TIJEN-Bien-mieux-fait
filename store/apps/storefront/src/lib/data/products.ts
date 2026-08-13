@@ -93,35 +93,6 @@ export const listProducts = async ({
 }
 
 /**
- * Options produits (tailles…) pour les filtres du store — appelé côté
- * serveur (jamais depuis le navigateur) : le backend peut rester privé.
- */
-export const listProductOptions = async (): Promise<
-  HttpTypes.StoreProductOption[]
-> => {
-  const headers = {
-    ...(await getAuthHeaders()),
-  }
-
-  const next = {
-    ...(await getCacheOptions("products")),
-  }
-
-  return sdk.client
-    .fetch<{ product_options?: HttpTypes.StoreProductOption[] }>(
-      `/store/product-options`,
-      {
-        method: "GET",
-        query: { is_exclusive: false, fields: "*values" },
-        headers,
-        next,
-        cache: "no-store",
-      }
-    )
-    .then(({ product_options }) => product_options ?? [])
-}
-
-/**
  * This will fetch 100 products to the Next.js cache and sort them based on the sortBy parameter.
  * It will then return the paginated products based on the page and limit parameters.
  */

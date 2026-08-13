@@ -22,43 +22,36 @@ type Props = {
 export const PRODUCT_LIMIT = 12
 
 export async function generateStaticParams() {
-  try {
-    const { collections } = await listCollections({
-      fields: "*products",
-    })
+  const { collections } = await listCollections({
+    fields: "*products",
+  })
 
-    if (!collections) {
-      return []
-    }
-
-    const countryCodes = await listRegions().then(
-      (regions: StoreRegion[]) =>
-        regions
-          ?.map((r) => r.countries?.map((c) => c.iso_2))
-          .flat()
-          .filter(Boolean) as string[]
-    )
-
-    const collectionHandles = collections.map(
-      (collection: StoreCollection) => collection.handle
-    )
-
-    const staticParams = countryCodes
-      ?.map((countryCode: string) =>
-        collectionHandles.map((handle: string | undefined) => ({
-          countryCode,
-          handle,
-        }))
-      )
-      .flat()
-
-    return staticParams
-  } catch (error) {
-    // Build résilient : si le backend est indisponible au build, la page
-    // devient dynamique (rendue à la demande) au lieu de planter le build.
-    console.error("generateStaticParams skipped (backend indisponible)", error)
+  if (!collections) {
     return []
   }
+
+  const countryCodes = await listRegions().then(
+    (regions: StoreRegion[]) =>
+      regions
+        ?.map((r) => r.countries?.map((c) => c.iso_2))
+        .flat()
+        .filter(Boolean) as string[]
+  )
+
+  const collectionHandles = collections.map(
+    (collection: StoreCollection) => collection.handle
+  )
+
+  const staticParams = countryCodes
+    ?.map((countryCode: string) =>
+      collectionHandles.map((handle: string | undefined) => ({
+        countryCode,
+        handle,
+      }))
+    )
+    .flat()
+
+  return staticParams
 }
 
 export async function generateMetadata(props: Props): Promise<Metadata> {

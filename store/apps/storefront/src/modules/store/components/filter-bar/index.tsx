@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useCallback, useMemo } from "react"
+import { useEffect, useState, useCallback, useMemo } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
+import { sdk } from "@lib/config"
 import { HttpTypes } from "@medusajs/types"
 import { clx } from "@modules/common/components/ui"
 import {
@@ -14,8 +15,6 @@ import { ChevronDownMini } from "@medusajs/icons"
 
 type FilterBarProps = {
   sortBy: SortOptions
-  /** Options produits (tailles…) chargées côté serveur — le backend reste privé. */
-  options: HttpTypes.StoreProductOption[]
   "data-testid"?: string
 }
 
@@ -25,18 +24,34 @@ type FilterBarProps = {
  * Une seule ligne : tri à gauche, bouton « Filtres » à droite qui déploie un
  * panneau avec les options produits (taille, etc.) en chips. Les options sont
  * multitokens dans l'URL (`option_value_id`), comme l'ancien OptionsPicker.
- * Les options arrivent en prop depuis le serveur (aucun appel API navigateur).
  */
 const FilterBar = ({
   sortBy,
-  options,
   "data-testid": dataTestId,
 }: FilterBarProps) => {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
+  const [options, setOptions] = useState<HttpTypes.StoreProductOption[]>([])
   const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    const fetchOptions = async () => {
+      try {
+        const response = await sdk.client.fetch<{
+          product_options?: HttpTypes.StoreProductOption[]
+        }>("/store/product-options", {
+          method: "GET",
+          query: { is_exclusive: false, fields: "*values" },
+        })
+        if (response?.product_options) setOptions(response.product_options)
+      } catch (error) {
+        console.error("Failed to fetch product options", error)
+      }
+    }
+    fetchOptions()
+  }, [])
 
   const updateQueryParams = useCallback(
     (updater: (params: URLSearchParams) => void) => {

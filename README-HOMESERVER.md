@@ -38,17 +38,15 @@ sudo apt install podman podman-compose
    tunnel** → choisis **Cloudflared** → donne-lui un nom (ex. `2tijen`) →
    Cloudflare affiche un **token** (`eyJ…`) → colle-le dans `.env`
    (`CLOUDFLARE_TUNNEL_TOKEN`).
-3. Dans le tunnel, ajoute le **Public Hostname** :
+3. Dans le tunnel, ajoute les **Public Hostnames** :
 
 | Hostname | Service |
 |---|---|
 | `2tijen.com` et `www.2tijen.com` | `http://storefront:8000` |
+| `api.2tijen.com` | `http://backend:9000` |
 
-   > ⚠️ **Le backend reste privé** : tout le trafic passe par le storefront
-   > (appels serveur, jamais depuis le navigateur). Ne crée **pas** de route
-   > `api.…` dans le tunnel. Fais cette config **avant** le premier
-   > déploiement : le build du storefront appelle le backend pendant
-   > `next build`.
+   > ⚠️ Fais cette config **avant** le premier déploiement : le build du
+   > storefront appelle `https://api.2tijen.com/health` pendant `next build`.
 
 ---
 
@@ -79,8 +77,9 @@ Résultat :
 
 | URL | Rôle |
 |---|---|
-| `https://2tijen.com/gf` | le site (tunnel Cloudflare → storefront) |
-| `http://localhost:9000/app` | l'admin Medusa (via `ssh -L 9000:localhost:9000`) |
+| `https://2tijen.com/gf` | le site |
+| `https://api.2tijen.com/app` | l'admin Medusa |
+| `https://api.2tijen.com/health` | healthcheck API |
 
 ---
 
@@ -90,16 +89,6 @@ Résultat :
 # Dans le conteneur backend
 podman exec -it 2tijen_backend_1 npx medusa user -e admin@2tijen.com -p UN-MOT-DE-PASSE
 # (ou : podman exec -it 2tijen-backend-1 … selon le provider compose)
-```
-
-### Accéder à l'admin (`/app`) — backend privé
-
-Le backend n'est **jamais** exposé sur Internet. Pour ouvrir l'admin :
-
-```bash
-# Tunnel SSH vers la machine (depuis ton poste) :
-ssh -L 9000:localhost:9000 user@serveur-maison
-# puis ouvre http://localhost:9000/app dans ton navigateur
 ```
 
 ---
@@ -129,18 +118,17 @@ Le volume `pg-data` contient la base : `podman volume ls | grep pg-data`.
 
 ---
 
-## 7. Stockage des images (R2 — **requis** avec backend privé)
+## 7. Stockage des images (R2 recommandé)
 
-Avec un backend privé, les URLs d'images servies par le backend local ne
-seraient pas accessibles au navigateur. **Cloudflare R2 est donc requis** :
+Sans R2, les images uploadées vont dans le volume `backend-static`
+(persistant, donc OK). Pour servir les images via le CDN Cloudflare (plus
+rapide pour les visiteurs, surtout avec un upload maison limité) :
 
 1. Crée un bucket **Cloudflare R2** public + un token API (Object Read & Write)
 2. Remplis `S3_BUCKET`, `S3_PUBLIC_URL` (ex. `https://cdn.2tijen.com` ou l'URL
    publique R2), `S3_REGION=auto`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`
-   dans `.env`, puis `./deploy.sh` — le backend bascule sur R2 automatiquement
+3. `./deploy.sh` → le backend bascule sur R2 automatiquement
    (`store/apps/backend/medusa-config.ts`)
-3. (Optionnel) ajoute un Public Hostname `cdn.2tijen.com` → `r2.dev` dans le
-   tunnel pour servir les images via ton domaine
 4. **Ré-uploader les images existantes** via l'admin (le widget « Drop »)
 
 ---
