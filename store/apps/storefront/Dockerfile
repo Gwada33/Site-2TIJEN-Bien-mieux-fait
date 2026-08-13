@@ -50,7 +50,7 @@ RUN APP_DIR="$(dirname "$(find /app/apps/storefront/.next/standalone -name serve
   && cp -a /app/apps/storefront/public "$APP_DIR/public" \
   && echo "standalone normalisé : $APP_DIR"
 
-# --- Étape 3 : runtime ------------------------------------------------------
+# --- Étape 3 : runtimes ------------------------------------------------------
 FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
