@@ -1,0 +1,15 @@
+# Contexte Docker = store/ — ne pas copier ce qui est généré ou sensible
+node_modules
+**/node_modules
+**/.next
+**/.medusa
+**/.turbo
+.git
+.gitignore
+**/.env
+**/.env.*
+**/.env.production.local
+*.log
+**/integration-tests
+**/jest.config.js
+**/tsconfig.tsbuildinfo

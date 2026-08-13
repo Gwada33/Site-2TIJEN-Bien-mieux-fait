@@ -1,0 +1,104 @@
+# ============================================================
+# 2TIJEN — Stack complète (Podman home server + Cloudflare Tunnel)
+# Usage : ./deploy.sh   (ou : podman-compose up -d --build)
+# Toutes les variables viennent du fichier .env (cf. .env.example)
+# ============================================================
+
+services:
+  # --- Base de données ------------------------------------------------------
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    environment:
+      POSTGRES_USER: medusa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: medusa-store
+    volumes:
+      - pg-data:/var/lib/postgresql/data:Z
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medusa -d medusa-store"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # --- Cache / event bus ----------------------------------------------------
+  redis:
+    image: docker.io/library/redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data:Z
+    restart: unless-stopped
+
+  # --- Backend Medusa (API + admin /app) ------------------------------------
+  backend:
+    build:
+      context: ./store
+      dockerfile: apps/backend/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://medusa:${POSTGRES_PASSWORD}@postgres:5432/medusa-store
+      REDIS_URL: redis://redis:6379
+      PORT: "9000"
+    ports:
+      # Loopback uniquement : accès admin via ssh -L 9000:localhost:9000
+      # (jamais exposé sur Internet — le tunnel ne route que vers le storefront)
+      - "127.0.0.1:9000:9000"
+    volumes:
+      # Persistance des fichiers uploadés si stockage local (sinon → R2)
+      - backend-static:/app/apps/backend/static:Z
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:9000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # --- Storefront Next.js ----------------------------------------------------
+  storefront:
+    build:
+      context: ./store
+      dockerfile: apps/storefront/Dockerfile
+      args:
+        NEXT_PUBLIC_MEDUSA_BACKEND_URL: ${NEXT_PUBLIC_MEDUSA_BACKEND_URL}
+        NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_DEFAULT_REGION: ${NEXT_PUBLIC_DEFAULT_REGION}
+        NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL}
+        NEXT_PUBLIC_HERO_VIDEO_URL: ${NEXT_PUBLIC_HERO_VIDEO_URL}
+        NEXT_PUBLIC_HERO_LOGO_URL: ${NEXT_PUBLIC_HERO_LOGO_URL}
+        NEXT_PUBLIC_NEXT_DROP_DATE: ${NEXT_PUBLIC_NEXT_DROP_DATE}
+        NEXT_PUBLIC_STRIPE_KEY: ${NEXT_PUBLIC_STRIPE_KEY}
+    environment:
+      # Requis au runtime (check-env-variables de next.config)
+      NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}
+      # URL interne du backend (serveur) — le backend n'est jamais exposé
+      MEDUSA_BACKEND_URL: http://backend:9000
+      PORT: "8000"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # --- Tunnel Cloudflare (zéro port ouvert, TLS automatique) -----------------
+  cloudflared:
+    image: docker.io/cloudflare/cloudflared:latest
+    environment:
+      CLOUDFLARE_TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: ["sh", "-c", "tunnel --no-autoupdate run --token \"$CLOUDFLARE_TUNNEL_TOKEN\""]
+    depends_on:
+      - backend
+      - storefront
+    restart: unless-stopped
+
+volumes:
+  pg-data:
+  redis-data:
+  backend-static:
