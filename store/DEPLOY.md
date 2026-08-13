@@ -13,17 +13,10 @@
 
 - [ ] Un compte [Railway](https://railway.app) (GitHub login) et [Vercel](https://vercel.com)
 - [ ] Le nom de domaine (ex. `2tijen.com`) chez ton registrar (OVH, Namecheap…)
-- [ ] Le code poussé sur GitHub (le repo n'est **pas encore** initialisé) :
-
-```bash
-cd "Site 2TIJEN Bien mieux fait"
-git init
-git add .
-git commit -m "chore: initial commit"
-git branch -M main
-git remote add origin git@github.com:TON-USER/2tijen.git   # à adapter
-git push -u origin main
-```
+- [x] ~~Le code poussé sur GitHub~~ → **déjà fait** :
+      le repo est initialisé sur `main` et poussé sur
+      [`github.com/Gwada33/Site-2TIJEN-Bien-mieux-fait`](https://github.com/Gwada33/Site-2TIJEN-Bien-mieux-fait).
+      Après un changement local : `git add . && git commit -m "..." && git push`
 
 > ⚠️ `.gitignore` exclut déjà `node_modules` et tous les `.env*`.
 > Le fichier `store/apps/backend/.env` (DB locale) ne partira **jamais** en ligne.
@@ -34,9 +27,12 @@ git push -u origin main
 
 ### 1.1 Créer le projet et les services
 
-1. Railway → **New Project** → **Deploy from GitHub repo** → choisis le repo.
+1. Railway → **New Project** → **Deploy from GitHub repo** → choisis le repo
+   `Gwada33/Site-2TIJEN-Bien-mieux-fait`.
 2. Railway détecte le monorepo : sélectionne **root directory = `store`**.
-   (La config `store/railway.json` pointe déjà vers `apps/backend/Dockerfile`.)
+   (La config `store/railway.json` pointe déjà vers `apps/backend/Dockerfile`
+   et active un healthcheck sur `/health` : Railway n'éteint pas le deploy
+   pendant les migrations.)
 3. Ajoute les plugins dans le projet :
    - **PostgreSQL** (Database → Create) → note l'URL `DATABASE_URL`
    - **Redis** (recommandé) → note l'URL `REDIS_URL`
