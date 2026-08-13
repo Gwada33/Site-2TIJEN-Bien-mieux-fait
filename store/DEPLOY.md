@@ -1,150 +1,304 @@
-# Déploiement 2TIJEN — Railway (backend) + Vercel (storefront)
+# Déploiement 2TIJEN — Coolify (single host)
 
-> Guide pas-à-pas pour mettre en ligne le site avec un nom de domaine.
-> Stack : backend Medusa v2 (`store/apps/backend`) + storefront Next.js 15
-> (`store/apps/storefront`) dans un monorepo npm (`store/`).
+> Guide pour mettre la stack en ligne **sur un seul serveur Coolify**.
+> Pas de Cloudflare, pas de Vercel, pas de Railway — tout cohabite
+> sur l'hôte Coolify et publié via les ports que tu choisis.
 >
-> 💡 **Alternative home server (gratuit)** : voir `README-HOMESERVER.md`
-> (Podman + Cloudflare Tunnel — Dockerfiles déjà prêts dans `store/apps/*`).
+> Stack : Postgres + Redis + Medusa backend + Next.js storefront,
+> le tout dans des services Coolify séparés.
 
 ---
 
 ## 0. Prérequis
 
-- [ ] Un compte [Railway](https://railway.app) (GitHub login) et [Vercel](https://vercel.com)
-- [ ] Le nom de domaine (ex. `2tijen.com`) chez ton registrar (OVH, Namecheap…)
-- [x] ~~Le code poussé sur GitHub~~ → **déjà fait** :
-      le repo est initialisé sur `main` et poussé sur
-      [`github.com/Gwada33/Site-2TIJEN-Bien-mieux-fait`](https://github.com/Gwada33/Site-2TIJEN-Bien-mieux-fait).
-      Après un changement local : `git add . && git commit -m "..." && git push`
+- Une instance Coolify opérationnelle (v4).
+- Le repo GitHub poussé : `Gwada33/Site-2TIJEN-Bien-mieux-fait`.
+  (Après un changement local : `git add . && git commit -m "..." && git push`)
+- ⚠️ `.gitignore` exclut déjà `node_modules` et tous les `.env*`.
+- Tu n'as **pas** encore de nom de domaine → on reste en HTTP local,
+  Coolify publie sur les ports de l'hôte. Quand tu auras un domaine,
+  reporte-toi à la section §6 pour brancher HTTPS.
 
-> ⚠️ `.gitignore` exclut déjà `node_modules` et tous les `.env*`.
-> Le fichier `store/apps/backend/.env` (DB locale) ne partira **jamais** en ligne.
+> Ports utilisés sur l'hôte Coolify :
+> - **Coolify UI** : `8000`
+> - **Storefront** : `8001` ← n'est PAS en conflit avec l'UI
+> - **Backend API / admin** : `9000`
 
 ---
 
-## 1. Backend → Railway
+## 1. Créer le projet Coolify
 
-### 1.1 Créer le projet et les services
+1. **Coolify → Projects → Add Project** → nomme-le `2tijen`.
+2. Dans ce projet, tu vas créer **4 services** dans l'ordre suivant :
+   - (a) Postgres
+   - (b) Redis
+   - (c) Backend
+   - (d) Storefront
 
-1. Railway → **New Project** → **Deploy from GitHub repo** → choisis le repo
-   `Gwada33/Site-2TIJEN-Bien-mieux-fait`.
-2. Railway détecte le monorepo : sélectionne **root directory = `store`**.
-   (La config `store/railway.json` pointe déjà vers `apps/backend/Dockerfile`
-   et active un healthcheck sur `/health` : Railway n'éteint pas le deploy
-   pendant les migrations.)
-3. Ajoute les plugins dans le projet :
-   - **PostgreSQL** (Database → Create) → note l'URL `DATABASE_URL`
-   - **Redis** (recommandé) → note l'URL `REDIS_URL`
+> Coolify les fera communiquer via leur réseau privé (`<service-name>`).
 
-### 1.2 Variables d'environnement (service backend)
+---
 
-Copie depuis `store/apps/backend/.env.production.example` (tout via l'UI Railway) :
+## 2. Service (a) — Postgres
 
-| Variable | Valeur |
+**Coolify → Service → Add → Database → PostgreSQL**
+
+| Champ | Valeur |
 |---|---|
-| `DATABASE_URL` | URL du plugin PostgreSQL |
-| `REDIS_URL` | URL du plugin Redis (optionnel) |
-| `JWT_SECRET` / `COOKIE_SECRET` | `openssl rand -base64 32` × 2 |
-| `STORE_CORS` | `https://2tijen.com,https://www.2tijen.com` |
-| `AUTH_CORS` | idem `STORE_CORS` |
-| `ADMIN_CORS` | `https://api.2tijen.com` |
-| `S3_BUCKET`, `S3_PUBLIC_URL`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Cloudflare R2 (voir §4) — **recommandé**, sinon disque éphémère |
+| Image | `postgres:16-alpine` |
+| DB name | `medusa-store` |
+| Username | `medusa` |
+| Password | *(auto-généré par Coolify, COPIE-LE)* |
+| Volume | `pg-data` monté sur `/var/lib/postgresql/data` |
+| Port | laisser par défaut (`5432` interne, **pas exposé à l'hôte**) |
 
-### 1.3 Déployer
-
-1. **Deploy** → le Dockerfile build tout (npm ci + build Medusa + admin) puis lance
-   `medusa db:migrate && medusa start` (migrations automatiques au démarrage).
-2. Créer le **compte admin** (une seule fois, sur la DB de prod) :
-   - via le CLI Railway : `railway run npx medusa user -e admin@2tijen.com -p UN-MOT-DE-PASSE`
-   - ou via **Railway → service → command** (shell) : `npx medusa user -e ... -p ...`
-3. Vérifier : `https://api.2tijen.com/health` → `{"status":"ok"}`.
-
-### 1.4 Domaine API
-
-Railway → service → **Settings → Networking → Generate Domain** (ou Custom Domain) :
-`api.2tijen.com` → Railway fournit un CNAME cible.
-L'admin sera sur `https://api.2tijen.com/app`.
+Note l'URL complète que Coolify affiche (forme `postgres://medusa:XXX@postgres:5432/medusa-store`).
 
 ---
 
-## 2. Storefront → Vercel
+## 3. Service (b) — Redis
 
-1. Vercel → **Add New → Project** → importe le même repo.
-2. **Root Directory = `store/apps/storefront`** (Next.js auto-détecté).
-3. Variables d'environnement (Production) — copie depuis
-   `store/apps/storefront/.env.production.example` :
+**Coolify → Service → Add → Database → Redis**
 
-| Variable | Valeur |
+| Champ | Valeur |
 |---|---|
-| `NEXT_PUBLIC_MEDUSA_BACKEND_URL` | `https://api.2tijen.com` |
-| `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY` | ta clé `pk_…` (Admin → Settings → API keys) |
-| `NEXT_PUBLIC_DEFAULT_REGION` | `gf` |
-| `NEXT_PUBLIC_BASE_URL` | `https://2tijen.com` |
-| `NEXT_PUBLIC_STRIPE_KEY` | vide (paiement manuel) |
-| `NEXT_PUBLIC_HERO_VIDEO_URL` | la vidéo Shopify actuelle |
-| `NEXT_PUBLIC_HERO_LOGO_URL` / `NEXT_PUBLIC_NEXT_DROP_DATE` | vides pour l'instant |
+| Image | `redis:7-alpine` |
+| Command | `redis-server --appendonly yes` |
+| Volume | `redis-data` monté sur `/data` |
+| Port | **pas exposé à l'hôte** (interne uniquement) |
 
-> ⚠️ Le build Next.js appelle le backend (`generateStaticParams` des collections) :
-> **déploie le backend d'abord**, puis le storefront.
-
-4. **Deploy**, puis ajoute les domaines `2tijen.com` et `www.2tijen.com`
-   (Vercel donne les enregistrements DNS à créer).
+Coolify devrait te donner une URL type `redis://redis:6379`.
 
 ---
 
-## 3. DNS (registrar)
+## 4. Service (c) — Backend Medusa
 
-| Enregistrement | Type | Cible |
-|---|---|---|
-| `@` (apex) | CNAME/ALIAS | `cname.vercel-dns.com` |
-| `www` | CNAME | `cname.vercel-dns.com` |
-| `api` | CNAME | (la cible Railway donnée au §1.4) |
-| `cdn` (optionnel, R2) | CNAME | `pub-xxxx.r2.dev` (ou le domaine custom R2) |
+**Coolify → Service → Add → Application**
 
----
+### 4.1 Build
 
-## 4. Stockage des images (Cloudflare R2 — recommandé)
-
-Le disque d'un conteneur Railway est **éphémère** : sans stockage externe,
-les images uploadées (drops, produits) disparaissent à chaque redéploiement.
-
-1. Créer un bucket R2 public (ou via AWS S3 / Scaleway Object Storage).
-2. Créer un token API R2 (permissions : Object Read & Write).
-3. Renseigner les variables `S3_*` du backend **puis redéployer**.
-4. **Ré-uploader les images existantes** via l'admin (`/app`) — les anciennes
-   URLs `http://localhost:9000/static/...` ne sont pas migrées automatiquement
-   (dont l'image du drop : widget « Drop » → uploader à nouveau).
-
----
-
-## 5. Après le déploiement — check-list
-
-- [ ] `https://api.2tijen.com/health` répond `ok`
-- [ ] `https://api.2tijen.com/app` → connexion admin OK
-- [ ] `https://2tijen.com/gf` → hero avec vidéo + logo
-- [ ] `https://2tijen.com/gf/store` → drop avec image + produits
-- [ ] Passer une commande test (paiement manuel) jusqu'à la confirmation
-- [ ] Re-uploader l'image du drop + vérifier les produits (PNG sans cadre)
-- [ ] (Recommandé) Activer les **backups** du plugin Postgres Railway
-
----
-
-## 6. Mises à jour
-
-- **Backend** : `git push` → Railway redéploie automatiquement (les migrations
-  tournent au démarrage).
-- **Storefront** : `git push` → Vercel rebuild. Pour un changement de variable
-  `NEXT_PUBLIC_*` : modifier dans Vercel puis **Redploy** (forcé).
-
----
-
-## 7. Dépannage rapide
-
-| Symptôme | Cause probable |
+| Champ | Valeur |
 |---|---|
-| Storefront 404 / build qui échoue | Backend pas encore déployé → déployer d'abord, ou `NEXT_PUBLIC_MEDUSA_BACKEND_URL` erroné |
-| CORS error dans la console | `STORE_CORS` / `AUTH_CORS` ne contiennent pas le domaine EXACT (avec `https://` et sans `/`) |
-| Images qui disparaissent après redéploiement | Stockage local → passer sur R2 (§4) |
-| Login admin refusé | Compte non créé sur la DB prod (§1.3) |
-| `medusa db:migrate` qui échoue au boot | `DATABASE_URL` incorrect ou DB pas encore prête (redéployer après) |
+| Source | GitHub → ton repo |
+| Branch | `main` |
+| **Build Pack** | **Dockerfile** |
+| **Dockerfile path** | `store/apps/backend/Dockerfile` |
+| **Base directory / Build context** | `store` |
+
+### 4.2 Port
+
+| Champ | Valeur |
+|---|---|
+| Container port | `9000` |
+| **Host port** | `9000` (exposé sur l'hôte — c'est lui qui sert l'API/l'admin) |
+
+### 4.3 Variables d'environnement
+
+Ajoute-les dans la section "Environment Variables" :
+
+```
+NODE_ENV=production
+PORT=9000
+DATABASE_URL=<colle ici l'URL Postgres du §2>
+REDIS_URL=redis://redis:6379
+JWT_SECRET=<openssl rand -base64 32>
+COOKIE_SECRET=<openssl rand -base64 32>
+STORE_CORS=http://<ton-host-coolify>:8001,http://<ton-host-coolify>:9000
+ADMIN_CORS=http://<ton-host-coolify>:8001,http://<ton-host-coolify>:9000
+AUTH_CORS=http://<ton-host-coolify>:8001,http://<ton-host-coolify>:9000
+```
+
+> ⚠️ Remplace `<ton-host-coolify>` par l'IP/hostname réel
+> (ex. `http://12.34.56.78:8001`). **Sans slash final**, séparés par
+> des virgules.
+
+### 4.4 Volumes (optionnel mais recommandé)
+
+Monte un volume `backend-static` sur `/app/apps/backend/static`
+→ c'est là que Medusa stocke les uploads par défaut (éphémères sinon).
+
+### 4.5 Healthcheck
+
+Coolify va utiliser le healthcheck défini dans le compose
+(path `/health`). Laisse par défaut.
+
+### 4.6 Déploiement
+
+1. **Deploy** → le build tourne, puis le conteneur boot, fait
+   `medusa db:migrate` puis `medusa start`.
+2. Une fois "Healthy", crée le compte admin une fois pour toutes :
+   - **Coolify → service backend → Terminal**
+   - tape : `cd apps/backend && npx medusa user -e admin@2tijen.com -p TON-MOT-DE-PASSE`
+3. Vérifie : `http://<ton-host>:9000/health` doit répondre
+   `{"status":"ok"}` et `http://<ton-host>:9000/app` doit afficher
+   le login admin.
+
+---
+
+## 5. Service (d) — Storefront Next.js
+
+**Coolify → Service → Add → Application**
+
+### 5.1 Build
+
+| Champ | Valeur |
+|---|---|
+| Source | GitHub → ton repo |
+| Branch | `main` |
+| **Build Pack** | **Dockerfile** |
+| **Dockerfile path** | `store/apps/storefront/Dockerfile` |
+| **Base directory** | `store` |
+
+### 5.2 Port
+
+| Champ | Valeur |
+|---|---|
+| Container port | `8001` |
+| **Host port** | `8001` |
+
+> ⚠️ On évite `8000` parce qu'il est pris par l'UI Coolify.
+
+### 5.3 Build Arguments
+
+Coolify ne supporte pas les ARG Docker nativement. Tu as **deux
+options** :
+
+- **Option A (recommandée)** : ajoute une section **"Build Arguments"**
+  dans les settings du service, avec ces valeurs :
+
+```
+NEXT_PUBLIC_MEDUSA_BACKEND_URL=http://<ton-host>:9000
+NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=pk_ta-clé-réelle
+NEXT_PUBLIC_DEFAULT_REGION=gf
+NEXT_PUBLIC_BASE_URL=http://<ton-host>:8001
+NEXT_PUBLIC_HERO_VIDEO_URL=
+NEXT_PUBLIC_HERO_LOGO_URL=
+NEXT_PUBLIC_NEXT_DROP_DATE=
+NEXT_PUBLIC_STRIPE_KEY=
+BACKEND_UPSTREAM_URL=http://backend:9000
+```
+
+> `BACKEND_UPSTREAM_URL` doit pointer vers le **service Docker**
+> interne (Coolify nomme le service `backend` par défaut, donc
+> `http://backend:9000`).
+
+> Si l'UI Coolify ne te permet pas de poser les ARG, passe par
+> l'option B : ajoute les mêmes variables dans la section
+> "Environment Variables" → Next.js les lira au BUILD également
+> grâce au script `check-env-variables.js`. (Vérifie dans l'UI
+> Coolify la présence du champ "Build Args" ; depuis v4.0 il
+> existe.)
+
+### 5.4 Variables d'environnement (runtime)
+
+```
+NODE_ENV=production
+PORT=8001
+HOSTNAME=0.0.0.0
+NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=pk_ta-clé-réelle
+```
+
+### 5.5 Déploiement
+
+1. **Deploy** → build Next.js (3-4 min), puis démarrage sur `8001`.
+2. Ouvre `http://<ton-host>:8001/gf` → la home doit charger
+   (hero + produits depuis l'API sur `:9000`).
+
+> Le storefront converse avec le backend **via** `http://<ton-host>:9000`
+> (URL publique, NEXT_PUBLIC_MEDUSA_BACKEND_URL) pour le SDK Medusa
+> côté navigateur, **et** via `http://backend:9000` (URL privée,
+> rewrites serveur) pour `/app`, `/admin`, `/store`, `/static`,
+> `/health`.
+
+---
+
+## 6. Quand tu auras un nom de domaine
+
+1. **DNS** : pointer `2tijen.com` (et `www`) vers l'IP de l'hôte Coolify.
+2. **Coolify** :
+   - Service backend (`:9000`) → onglets "Domains" → ajouter `api.2tijen.com` (Coolify générera le HTTPS via Let's Encrypt).
+   - Service storefront (`:8001`) → ajouter `2tijen.com` et `www.2tijen.com`.
+3. **Variables à mettre à jour puis redéployer** :
+
+   Backend :
+   ```
+   STORE_CORS=https://2tijen.com,https://www.2tijen.com,https://api.2tijen.com
+   ADMIN_CORS=https://2tijen.com
+   AUTH_CORS=https://2tijen.com,https://www.2tijen.com
+   ```
+
+   Storefront (build args) :
+   ```
+   NEXT_PUBLIC_MEDUSA_BACKEND_URL=https://api.2tijen.com
+   NEXT_PUBLIC_BASE_URL=https://2tijen.com
+   BACKEND_UPSTREAM_URL=http://backend:9000
+   ```
+
+4. Les URLs finales :
+
+   | URL | Rôle |
+   |---|---|
+   | `https://2tijen.com/gf` | le site (Next.js) |
+   | `https://2tijen.com/app` | l'admin Medusa (rewrites → backend) |
+   | `https://api.2tijen.com/health` | healthcheck API |
+
+---
+
+## 7. Stockage des images (Cloudflare R2 — quand tu en auras besoin)
+
+Le volume `backend-static` survit aux redéploiement Coolify, mais il
+est **lié au service** et perdu si tu recrées le service. Pour un
+vrai stockage durable (drops, produits), branche un bucket R2 :
+
+1. **Cloudflare R2** → créer un bucket public + un token API.
+2. Variables backend à ajouter puis redéployer :
+   ```
+   S3_BUCKET=2tijen
+   S3_REGION=auto
+   S3_ACCESS_KEY_ID=xxx
+   S3_SECRET_ACCESS_KEY=xxx
+   S3_PUBLIC_URL=https://cdn.ton-domaine.com   (ou l'URL publique R2)
+   ```
+3. Ré-uploader les images depuis l'admin (le widget "Drop" du
+   `apps/backend/src/admin/widgets/`).
+
+---
+
+## 8. Check-list après déploiement
+
+- [ ] `http://<host>:9000/health` → `ok`
+- [ ] `http://<host>:9000/app` → login admin OK
+- [ ] `http://<host>:8001/gf` → hero + liste des produits
+- [ ] `http://<host>:8001/gf/store` → drop + produits détaillés
+- [ ] Commande test (paiement manuel) jusqu'à confirmation
+- [ ] (Ultérieur) Activer les **backups** Postgres dans Coolify
+- [ ] (Ultérieur) Brancher R2 + domaine
+
+---
+
+## 9. Mises à jour
+
+```
+git add . && git commit -m "..." && git push
+```
+
+→ Coolify rebuild les services concernés (auto si tu as activé
+"auto-deploy" sur la branche `main`).
+
+Pour un changement de variable `NEXT_PUBLIC_*` côté storefront : il
+faut **forcer un rebuild** (pas juste un restart) car ces variables
+sont inlinées au build. Dans l'UI Coolify → service → "Force Rebuild"
+ou changer puis "Deploy".
+
+---
+
+## 10. Dépannage
+
+| Symptôme | Cause / solution |
+|---|---|
+| Backend restart en boucle, log `http.jwtSecret not found` | `JWT_SECRET` manquant → ajouter dans env et redéployer |
+| Storefront healthcheck 503 | `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY` non inlinée → vérifier les **Build Args** |
+| CORS error dans la console navigateur | `STORE_CORS`/`AUTH_CORS` ne contiennent pas l'URL exacte du storefront (avec `http://` et sans `/` final) |
+| Storefront 404 sur `/app` | `BACKEND_UPSTREAM_URL` n'est pas résolu → doit être `http://backend:9000` (DNS interne Coolify) |
+| Build Next.js échoue sur `generateStaticParams` | Backend pas encore UP → déployer d'abord le backend (le storefront appelle l'API au build pour pré-rendre les pages produits) |
+

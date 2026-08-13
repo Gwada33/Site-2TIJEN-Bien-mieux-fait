@@ -9,6 +9,15 @@ const S3_HOSTNAME = process.env.MEDUSA_CLOUD_S3_HOSTNAME
 const S3_PATHNAME = process.env.MEDUSA_CLOUD_S3_PATHNAME
 
 /**
+ * URL "cachée" du backend Medusa (Railway).
+ * Le storefront parle à SON propre domaine : Vercel redirige /app, /admin,
+ * /store, /static et /health vers ce backend. En local, on retombe sur
+ * http://localhost:9000 (aucune config requise en dev).
+ */
+const MEDUSA_UPSTREAM_URL =
+  process.env.BACKEND_UPSTREAM_URL || "http://localhost:9000"
+
+/**
  * @type {import('next').NextConfig}
  */
 const nextConfig = {
@@ -56,6 +65,17 @@ const nextConfig = {
           ]
         : []),
     ],
+  },
+  // Un seul port/domaine : l'admin (/app), l'API (/store), les images
+  // (/static) et le healthcheck sont redirigés vers le backend Railway.
+  async rewrites() {
+    return [
+      { source: "/app/:path*", destination: `${MEDUSA_UPSTREAM_URL}/app/:path*` },
+      { source: "/admin/:path*", destination: `${MEDUSA_UPSTREAM_URL}/admin/:path*` },
+      { source: "/store/:path*", destination: `${MEDUSA_UPSTREAM_URL}/store/:path*` },
+      { source: "/static/:path*", destination: `${MEDUSA_UPSTREAM_URL}/static/:path*` },
+      { source: "/health", destination: `${MEDUSA_UPSTREAM_URL}/health` },
+    ]
   },
 }
 

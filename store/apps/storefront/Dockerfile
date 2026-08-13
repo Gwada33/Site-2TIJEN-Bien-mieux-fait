@@ -1,13 +1,14 @@
 # ---------------------------------------------------------------------------
 # Storefront Next.js 2TIJEN — Dockerfile
 # Contexte de build : STORE/ (racine du workspace npm)
-#   (même pattern que le backend : npm ci au niveau workspace)
+# Service Coolify : port 8001 (8000 est pris par l'UI Coolify).
 # ---------------------------------------------------------------------------
 
 # --- Étape 1 : installation des dépendances (workspace complet) ------------
 FROM node:20-slim AS deps
 WORKDIR /app
 
+# Outils de build natifs (sharp, swc…)
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends openssl python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
@@ -29,6 +30,9 @@ ARG NEXT_PUBLIC_HERO_VIDEO_URL
 ARG NEXT_PUBLIC_HERO_LOGO_URL
 ARG NEXT_PUBLIC_NEXT_DROP_DATE
 ARG NEXT_PUBLIC_STRIPE_KEY
+# URL INTERNE du backend pour les rewrites (/app /admin /store /static /health)
+# ex. http://backend:9000 (réseau compose Coolify).
+ARG BACKEND_UPSTREAM_URL
 
 ENV NEXT_PUBLIC_MEDUSA_BACKEND_URL=$NEXT_PUBLIC_MEDUSA_BACKEND_URL \
     NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=$NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY \
@@ -37,7 +41,8 @@ ENV NEXT_PUBLIC_MEDUSA_BACKEND_URL=$NEXT_PUBLIC_MEDUSA_BACKEND_URL \
     NEXT_PUBLIC_HERO_VIDEO_URL=$NEXT_PUBLIC_HERO_VIDEO_URL \
     NEXT_PUBLIC_HERO_LOGO_URL=$NEXT_PUBLIC_HERO_LOGO_URL \
     NEXT_PUBLIC_NEXT_DROP_DATE=$NEXT_PUBLIC_NEXT_DROP_DATE \
-    NEXT_PUBLIC_STRIPE_KEY=$NEXT_PUBLIC_STRIPE_KEY
+    NEXT_PUBLIC_STRIPE_KEY=$NEXT_PUBLIC_STRIPE_KEY \
+    BACKEND_UPSTREAM_URL=$BACKEND_UPSTREAM_URL
 
 COPY apps/storefront apps/storefront
 RUN npm run build --workspace=@dtc/storefront
@@ -50,14 +55,16 @@ RUN APP_DIR="$(dirname "$(find /app/apps/storefront/.next/standalone -name serve
   && cp -a /app/apps/storefront/public "$APP_DIR/public" \
   && echo "standalone normalisé : $APP_DIR"
 
-# --- Étape 3 : runtimes ------------------------------------------------------
+# --- Étape 3 : runtime -------------------------------------------------------
 FROM node:20-slim AS runner
 WORKDIR /app
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    PORT=8001 \
+    HOSTNAME=0.0.0.0
 
 COPY --from=build /app/apps/storefront/.next/standalone ./
 
-EXPOSE 8000
+EXPOSE 8001
 
 # Localise server.js dynamiquement (chemin monorepo variable) puis démarre
-CMD ["sh", "-c", "cd \"$(dirname \"$(find . -name server.js -not -path '*/node_modules/*' | head -n1)\")\" && PORT=8000 HOSTNAME=0.0.0.0 node server.js"]
+CMD ["sh", "-c", "cd \"$(dirname \"$(find . -name server.js -not -path '*/node_modules/*' | head -n1)\")\" && node server.js"]

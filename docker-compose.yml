@@ -1,95 +1,108 @@
 # ============================================================
-# 2TIJEN — Stack complète (Podman home server + Cloudflare Tunnel)
-# Usage : ./deploy.sh   (ou : podman-compose up -d --build)
-# Toutes les variables viennent du fichier .env (cf. .env.example)
+# 2TIJEN — Stack Coolify (Postgres + Redis + Backend Medusa + Storefront Next.js)
+# Usage : ce fichier sert UNIQUEMENT de référence pour Coolify.
+#         Tu peux aussi faire :  docker compose up -d --build   (en local).
+# Variables : toutes viennent du fichier .env (cf. .env.example).
+# ============================================================
+# ⚠️  Pas de tunnel Cloudflare — Coolify publie les ports
+#     directement sur l'hôte (HTTPS via Coolify si domaine branché).
+#
+# ⚠️  Le port 8000 est pris par l'UI Coolify → le storefront
+#     écoute sur 8001 dans cette config (modifiable dans
+#     apps/storefront/Dockerfile).
 # ============================================================
 
 services:
-  # --- Base de données ------------------------------------------------------
+  # --- Base de données Postgres -----------------------------------------------
   postgres:
     image: docker.io/library/postgres:16-alpine
     environment:
-      POSTGRES_USER: medusa
+      POSTGRES_USER: ${POSTGRES_USER:-medusa}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: medusa-store
+      POSTGRES_DB: ${POSTGRES_DB:-medusa-store}
     volumes:
-      - pg-data:/var/lib/postgresql/data:Z
+      - pg-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U medusa -d medusa-store"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-medusa} -d ${POSTGRES_DB:-medusa-store}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
     restart: unless-stopped
 
-  # --- Cache / event bus ----------------------------------------------------
+  # --- Cache / event bus Redis ------------------------------------------------
   redis:
     image: docker.io/library/redis:7-alpine
     command: redis-server --appendonly yes
     volumes:
-      - redis-data:/data:Z
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
-  # --- Backend Medusa (API + admin /app) ------------------------------------
+  # --- Backend Medusa (API + admin /app) -------------------------------------
   backend:
     build:
       context: ./store
       dockerfile: apps/backend/Dockerfile
     env_file: .env
     environment:
-      DATABASE_URL: postgres://medusa:${POSTGRES_PASSWORD}@postgres:5432/medusa-store
+      DATABASE_URL: postgres://${POSTGRES_USER:-medusa}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-medusa-store}
       REDIS_URL: redis://redis:6379
       PORT: "9000"
+      NODE_ENV: production
+      # CORS — accepte n'importe quel host Coolify (HTTP pour l'instant,
+      # pas de domaine branché). À DURCIR dès qu'un domaine est en place.
+      STORE_CORS: ${STORE_CORS:-http://localhost:8001,http://localhost:9000}
+      ADMIN_CORS: ${ADMIN_CORS:-http://localhost:8001,http://localhost:9000}
+      AUTH_CORS: ${AUTH_CORS:-http://localhost:8001,http://localhost:9000}
     volumes:
-      # Persistance des fichiers uploadés si stockage local (sinon → R2)
-      - backend-static:/app/apps/backend/static:Z
+      - backend-static:/app/apps/backend/static
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:9000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 15s
       timeout: 10s
       retries: 10
-      start_period: 30s
+      start_period: 60s
     restart: unless-stopped
 
-  # --- Storefront Next.js ----------------------------------------------------
+  # --- Storefront Next.js ------------------------------------------------------
   storefront:
     build:
       context: ./store
       dockerfile: apps/storefront/Dockerfile
       args:
-        NEXT_PUBLIC_MEDUSA_BACKEND_URL: ${NEXT_PUBLIC_MEDUSA_BACKEND_URL}
+        NEXT_PUBLIC_MEDUSA_BACKEND_URL: ${NEXT_PUBLIC_MEDUSA_BACKEND_URL:-http://localhost:9000}
         NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}
-        NEXT_PUBLIC_DEFAULT_REGION: ${NEXT_PUBLIC_DEFAULT_REGION}
-        NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL}
-        NEXT_PUBLIC_HERO_VIDEO_URL: ${NEXT_PUBLIC_HERO_VIDEO_URL}
-        NEXT_PUBLIC_HERO_LOGO_URL: ${NEXT_PUBLIC_HERO_LOGO_URL}
-        NEXT_PUBLIC_NEXT_DROP_DATE: ${NEXT_PUBLIC_NEXT_DROP_DATE}
-        NEXT_PUBLIC_STRIPE_KEY: ${NEXT_PUBLIC_STRIPE_KEY}
+        NEXT_PUBLIC_DEFAULT_REGION: ${NEXT_PUBLIC_DEFAULT_REGION:-gf}
+        NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL:-http://localhost:8001}
+        NEXT_PUBLIC_HERO_VIDEO_URL: ${NEXT_PUBLIC_HERO_VIDEO_URL:-}
+        NEXT_PUBLIC_HERO_LOGO_URL: ${NEXT_PUBLIC_HERO_LOGO_URL:-}
+        NEXT_PUBLIC_NEXT_DROP_DATE: ${NEXT_PUBLIC_NEXT_DROP_DATE:-}
+        NEXT_PUBLIC_STRIPE_KEY: ${NEXT_PUBLIC_STRIPE_KEY:-}
+        # URL INTERNE du backend (réseau compose) pour les rewrites
+        BACKEND_UPSTREAM_URL: ${BACKEND_UPSTREAM_URL:-http://backend:9000}
     environment:
-      # Requis au runtime (check-env-variables de next.config)
+      # Requis au runtime (check-env-variables dans next.config.js)
       NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY}
-      PORT: "8000"
+      PORT: "8001"
+      HOSTNAME: "0.0.0.0"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:8000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8001').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 15s
       timeout: 10s
       retries: 10
       start_period: 30s
-    restart: unless-stopped
-
-  # --- Tunnel Cloudflare (zéro port ouvert, TLS automatique) -----------------
-  cloudflared:
-    image: docker.io/cloudflare/cloudflared:latest
-    environment:
-      CLOUDFLARE_TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
-    command: ["sh", "-c", "tunnel --no-autoupdate run --token \"$CLOUDFLARE_TUNNEL_TOKEN\""]
-    depends_on:
-      - backend
-      - storefront
     restart: unless-stopped
 
 volumes:
